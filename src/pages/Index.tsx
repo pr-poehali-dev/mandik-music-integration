@@ -1,496 +1,487 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { User, Conversation, Message } from "@/lib/api";
+import * as api from "@/lib/api";
 
-const HERO_IMAGE = "https://cdn.poehali.dev/projects/24890db7-3222-4ff4-9aed-fc2c37fb3095/files/2d6364fc-58db-4767-aa32-b5fbdff7dae1.jpg";
-
-interface Track {
-  id: number;
-  title: string;
-  duration: string;
-  durationSec: number;
-  album: string;
-  src: string;
-}
-
-const ALBUMS = [
-  { name: "Все треки", filter: "" },
-  { name: "Синглы", filter: "Синглы" },
-  { name: "EP", filter: "EP" },
-];
-
-const TRACKS: Track[] = [
-  { id: 1, title: "Ночной город", duration: "3:24", durationSec: 204, album: "Синглы", src: "" },
-  { id: 2, title: "Дым", duration: "2:58", durationSec: 178, album: "Синглы", src: "" },
-  { id: 3, title: "Молодой", duration: "3:12", durationSec: 192, album: "Синглы", src: "" },
-  { id: 4, title: "На районе", duration: "3:45", durationSec: 225, album: "EP", src: "" },
-  { id: 5, title: "Тени", duration: "2:42", durationSec: 162, album: "EP", src: "" },
-  { id: 6, title: "Без сна", duration: "3:33", durationSec: 213, album: "EP", src: "" },
-  { id: 7, title: "Выше", duration: "3:08", durationSec: 188, album: "Синглы", src: "" },
-  { id: 8, title: "Пламя", duration: "2:55", durationSec: 175, album: "EP", src: "" },
-];
-
-const NAV_ITEMS = [
-  { label: "Главная", href: "#hero" },
-  { label: "Музыка", href: "#music" },
-  { label: "Видео", href: "#video" },
-  { label: "О артисте", href: "#about" },
-  { label: "Соцсети", href: "#socials" },
-  { label: "Контакты", href: "#contacts" },
-];
-
-const SOCIALS = [
-  { name: "Instagram", icon: "Instagram", url: "https://instagram.com/mandik_inst", color: "from-pink-500 to-purple-500" },
-  { name: "Telegram", icon: "Send", url: "#", color: "from-blue-400 to-cyan-400" },
-  { name: "YouTube", icon: "Youtube", url: "#", color: "from-red-500 to-red-600" },
-  { name: "VK", icon: "Users", url: "#", color: "from-blue-500 to-blue-700" },
-  { name: "Apple Music", icon: "Music", url: "#", color: "from-pink-400 to-red-400" },
-  { name: "Spotify", icon: "Disc3", url: "#", color: "from-green-400 to-green-600" },
-];
-
-function formatTime(sec: number) {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
+type Screen = "auth" | "chats" | "chat" | "users";
 
 const Index = () => {
-  const [activeAlbum, setActiveAlbum] = useState("");
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [volume, setVolume] = useState(80);
-  const [mobileMenu, setMobileMenu] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const filteredTracks = activeAlbum
-    ? TRACKS.filter((t) => t.album === activeAlbum)
-    : TRACKS;
+  const [screen, setScreen] = useState<Screen>("auth");
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [user, setUser] = useState<User | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [activeConv, setActiveConv] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMsg, setNewMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const messagesEnd = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 50);
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
+    const raw = localStorage.getItem("bg_user");
+    if (raw) {
+      const u = JSON.parse(raw);
+      setUser(u);
+      setScreen("chats");
+    }
   }, []);
 
-  const playTrack = useCallback((track: Track) => {
-    if (currentTrack?.id === track.id) {
-      setIsPlaying((p) => !p);
-      return;
-    }
-    setCurrentTrack(track);
-    setIsPlaying(true);
-    setProgress(0);
-  }, [currentTrack]);
+  const loadConversations = useCallback(async () => {
+    if (!user) return;
+    const data = await api.getConversations();
+    if (data.conversations) setConversations(data.conversations);
+  }, [user]);
 
   useEffect(() => {
-    if (isPlaying && currentTrack) {
-      progressInterval.current = setInterval(() => {
-        setProgress((p) => {
-          if (p >= currentTrack.durationSec) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return p + 1;
-        });
-      }, 1000);
-    } else if (progressInterval.current) {
-      clearInterval(progressInterval.current);
+    if (user && screen === "chats") {
+      loadConversations();
+      const interval = setInterval(loadConversations, 5000);
+      return () => clearInterval(interval);
     }
-    return () => {
-      if (progressInterval.current) clearInterval(progressInterval.current);
+  }, [user, screen, loadConversations]);
+
+  const loadMessages = useCallback(async () => {
+    if (!activeConv) return;
+    const data = await api.getMessages(activeConv.id);
+    if (data.messages) setMessages(data.messages);
+  }, [activeConv]);
+
+  useEffect(() => {
+    if (activeConv && screen === "chat") {
+      loadMessages();
+      pollRef.current = setInterval(loadMessages, 3000);
+      return () => {
+        if (pollRef.current) clearInterval(pollRef.current);
+      };
+    }
+  }, [activeConv, screen, loadMessages]);
+
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleAuth = async () => {
+    setError("");
+    setLoading(true);
+    let data;
+    if (authMode === "register") {
+      data = await api.register(username, displayName || username, password);
+    } else {
+      data = await api.login(username, password);
+    }
+    setLoading(false);
+    if (data.error) {
+      setError(data.error);
+      return;
+    }
+    localStorage.setItem("bg_user", JSON.stringify(data.user));
+    setUser(data.user);
+    setScreen("chats");
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("bg_user");
+    setUser(null);
+    setScreen("auth");
+    setConversations([]);
+    setMessages([]);
+    setActiveConv(null);
+  };
+
+  const openChat = async (conv: Conversation) => {
+    setActiveConv(conv);
+    setScreen("chat");
+    const data = await api.getMessages(conv.id);
+    if (data.messages) setMessages(data.messages);
+  };
+
+  const startChat = async (otherUser: User) => {
+    setLoading(true);
+    const data = await api.startConversation(otherUser.id);
+    setLoading(false);
+    if (data.conversation_id) {
+      const conv: Conversation = {
+        id: data.conversation_id,
+        is_group: false,
+        group_name: null,
+        other_user: otherUser,
+        last_message: null,
+        unread_count: 0,
+      };
+      setActiveConv(conv);
+      setScreen("chat");
+      const msgs = await api.getMessages(data.conversation_id);
+      if (msgs.messages) setMessages(msgs.messages);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!newMsg.trim() || !activeConv) return;
+    const text = newMsg.trim();
+    setNewMsg("");
+    const tempMsg: Message = {
+      id: Date.now(),
+      text,
+      sender_id: user!.id,
+      is_read: false,
+      created_at: new Date().toISOString(),
+      sender_name: user!.display_name,
+      sender_color: user!.avatar_color,
     };
-  }, [isPlaying, currentTrack]);
-
-  const nextTrack = () => {
-    if (!currentTrack) return;
-    const idx = TRACKS.findIndex((t) => t.id === currentTrack.id);
-    const next = TRACKS[(idx + 1) % TRACKS.length];
-    setCurrentTrack(next);
-    setProgress(0);
-    setIsPlaying(true);
+    setMessages((prev) => [...prev, tempMsg]);
+    await api.sendMessage(activeConv.id, text);
   };
 
-  const prevTrack = () => {
-    if (!currentTrack) return;
-    const idx = TRACKS.findIndex((t) => t.id === currentTrack.id);
-    const prev = TRACKS[(idx - 1 + TRACKS.length) % TRACKS.length];
-    setCurrentTrack(prev);
-    setProgress(0);
-    setIsPlaying(true);
+  const openUsers = async () => {
+    setScreen("users");
+    setLoading(true);
+    const data = await api.getUsers();
+    setLoading(false);
+    if (data.users) setAllUsers(data.users.filter((u) => u.id !== user?.id));
   };
 
-  return (
-    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
-      {/* NAV */}
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-background/90 backdrop-blur-xl border-b border-border shadow-lg" : "bg-transparent"}`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
-          <a href="#hero" className="text-xl font-heading font-bold text-gradient">MANDIK</a>
-          <div className="hidden md:flex items-center gap-8">
-            {NAV_ITEMS.map((item) => (
-              <a key={item.href} href={item.href} className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                {item.label}
-              </a>
-            ))}
-          </div>
-          <button onClick={() => setMobileMenu(!mobileMenu)} className="md:hidden text-foreground">
-            <Icon name={mobileMenu ? "X" : "Menu"} size={24} />
-          </button>
+  const filteredUsers = allUsers.filter(
+    (u) =>
+      u.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      u.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getInitials = (name: string) =>
+    name
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+
+  const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  };
+
+  // AUTH SCREEN
+  if (screen === "auth") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-violet-950 via-slate-900 to-cyan-950 flex items-center justify-center p-4">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-1/4 left-1/3 w-80 h-80 bg-violet-500/10 rounded-full blur-[100px]" />
+          <div className="absolute bottom-1/3 right-1/4 w-64 h-64 bg-cyan-500/10 rounded-full blur-[80px]" />
         </div>
-        {mobileMenu && (
-          <div className="md:hidden bg-background/95 backdrop-blur-xl border-b border-border">
-            <div className="px-4 py-4 flex flex-col gap-3">
-              {NAV_ITEMS.map((item) => (
-                <a key={item.href} href={item.href} onClick={() => setMobileMenu(false)} className="text-base text-muted-foreground hover:text-foreground transition-colors py-1">
-                  {item.label}
-                </a>
-              ))}
+        <div className="relative w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-violet-500/20">
+              <Icon name="MessageCircle" size={32} className="text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-white">БумагаGram</h1>
+            <p className="text-slate-400 text-sm mt-1">Мессенджер нового поколения</p>
+          </div>
+
+          <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-6 shadow-2xl">
+            <div className="flex bg-slate-800/50 rounded-xl p-1 mb-6">
+              <button
+                onClick={() => { setAuthMode("login"); setError(""); }}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${authMode === "login" ? "bg-violet-600 text-white shadow" : "text-slate-400 hover:text-white"}`}
+              >
+                Вход
+              </button>
+              <button
+                onClick={() => { setAuthMode("register"); setError(""); }}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${authMode === "register" ? "bg-violet-600 text-white shadow" : "text-slate-400 hover:text-white"}`}
+              >
+                Регистрация
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <Input
+                placeholder="Логин"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-11"
+              />
+              {authMode === "register" && (
+                <Input
+                  placeholder="Имя для отображения"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-11"
+                />
+              )}
+              <Input
+                type="password"
+                placeholder="Пароль"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAuth()}
+                className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 h-11"
+              />
+              {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+              <Button
+                onClick={handleAuth}
+                disabled={loading}
+                className="w-full h-11 bg-gradient-to-r from-violet-600 to-cyan-600 hover:from-violet-500 hover:to-cyan-500 text-white font-medium"
+              >
+                {loading ? (
+                  <Icon name="Loader2" size={18} className="animate-spin" />
+                ) : authMode === "login" ? "Войти" : "Создать аккаунт"}
+              </Button>
             </div>
           </div>
-        )}
-      </nav>
-
-      {/* HERO */}
-      <section id="hero" className="relative min-h-screen flex items-center justify-center bg-gradient-hero overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse-glow" />
-          <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-secondary/20 rounded-full blur-[100px] animate-pulse-glow" style={{ animationDelay: "1.5s" }} />
-          <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-accent/15 rounded-full blur-[80px] animate-pulse-glow" style={{ animationDelay: "3s" }} />
         </div>
+      </div>
+    );
+  }
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 flex flex-col lg:flex-row items-center gap-12 pt-20">
-          <div className="flex-1 text-center lg:text-left">
-            <p className="text-secondary font-medium text-sm tracking-widest uppercase mb-4 animate-fade-up">mandik_music</p>
-            <h1 className="text-5xl sm:text-7xl lg:text-8xl font-heading font-900 leading-none mb-6 animate-fade-up">
-              <span className="text-gradient">MANDIK</span>
-            </h1>
-            <p className="text-lg sm:text-xl text-muted-foreground max-w-lg mb-8 animate-fade-up-delay">
-              Музыка, которая цепляет. Слушай новые треки, смотри клипы и будь на связи.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-fade-up-delay-2">
-              <Button
-                size="lg"
-                className="bg-primary hover:bg-primary/80 text-primary-foreground font-heading font-semibold px-8 glow-purple"
-                onClick={() => document.getElementById("music")?.scrollIntoView({ behavior: "smooth" })}
-              >
-                <Icon name="Play" size={20} />
-                <span className="ml-2">Слушать</span>
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-border text-foreground hover:bg-muted font-heading font-semibold px-8"
-                onClick={() => window.open("https://instagram.com/mandik_inst", "_blank")}
-              >
-                <Icon name="Instagram" size={20} />
-                <span className="ml-2">Instagram</span>
-              </Button>
-            </div>
+  // USERS LIST SCREEN
+  if (screen === "users") {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800">
+          <div className="max-w-lg mx-auto flex items-center gap-3 px-4 py-3">
+            <button onClick={() => setScreen("chats")} className="p-2 -ml-2 hover:bg-slate-800 rounded-xl transition-colors">
+              <Icon name="ArrowLeft" size={20} />
+            </button>
+            <h2 className="font-semibold text-lg flex-1">Новый чат</h2>
           </div>
-          <div className="flex-1 flex justify-center lg:justify-end">
+          <div className="max-w-lg mx-auto px-4 pb-3">
             <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/40 via-transparent to-secondary/40 rounded-3xl blur-2xl scale-110" />
-              <img
-                src={HERO_IMAGE}
-                alt="MANDIK"
-                className="relative w-72 h-72 sm:w-96 sm:h-96 object-cover rounded-3xl shadow-2xl animate-float"
+              <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <Input
+                placeholder="Поиск пользователей..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 pl-9 h-10"
               />
             </div>
           </div>
         </div>
 
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
-          <Icon name="ChevronDown" size={28} className="text-muted-foreground" />
-        </div>
-      </section>
-
-      {/* MUSIC */}
-      <section id="music" className="py-24 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <p className="text-secondary text-sm font-medium tracking-widest uppercase mb-2">Плейлист</p>
-            <h2 className="text-4xl sm:text-5xl font-heading font-bold text-gradient">Музыка</h2>
-          </div>
-
-          <div className="flex gap-3 justify-center mb-10 flex-wrap">
-            {ALBUMS.map((a) => (
+        <div className="max-w-lg mx-auto">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Icon name="Loader2" size={24} className="animate-spin text-violet-500" />
+            </div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="text-center py-12 text-slate-500">
+              <Icon name="UserX" size={40} className="mx-auto mb-3 opacity-50" />
+              <p>Пользователи не найдены</p>
+            </div>
+          ) : (
+            filteredUsers.map((u) => (
               <button
-                key={a.name}
-                onClick={() => setActiveAlbum(a.filter)}
-                className={`px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                  activeAlbum === a.filter
-                    ? "bg-primary text-primary-foreground glow-purple"
-                    : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
-                }`}
+                key={u.id}
+                onClick={() => startChat(u)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-900/50 transition-colors border-b border-slate-800/50"
               >
-                {a.name}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-card/50 backdrop-blur-sm rounded-2xl border border-border overflow-hidden">
-            <div className="grid grid-cols-[40px_1fr_100px_60px] sm:grid-cols-[50px_1fr_120px_80px] items-center px-4 sm:px-6 py-3 border-b border-border text-xs text-muted-foreground font-medium uppercase tracking-wider">
-              <span>#</span>
-              <span>Трек</span>
-              <span className="hidden sm:block">Альбом</span>
-              <span className="text-right">
-                <Icon name="Clock" size={14} />
-              </span>
-            </div>
-
-            {filteredTracks.map((track, idx) => (
-              <div
-                key={track.id}
-                onClick={() => playTrack(track)}
-                className={`track-row grid grid-cols-[40px_1fr_100px_60px] sm:grid-cols-[50px_1fr_120px_80px] items-center px-4 sm:px-6 py-4 cursor-pointer transition-all hover:bg-muted/50 border-b border-border/50 last:border-0 ${
-                  currentTrack?.id === track.id ? "active bg-primary/10" : ""
-                }`}
-              >
-                <div className="relative w-8 h-8 flex items-center justify-center">
-                  <span className={`text-sm ${currentTrack?.id === track.id ? "text-primary font-bold" : "text-muted-foreground"}`}>
-                    {currentTrack?.id === track.id && isPlaying ? (
-                      <Icon name="Volume2" size={16} className="text-primary" />
-                    ) : (
-                      idx + 1
-                    )}
-                  </span>
-                  <div className="track-play-btn absolute inset-0 flex items-center justify-center bg-primary rounded-full">
-                    <Icon name={currentTrack?.id === track.id && isPlaying ? "Pause" : "Play"} size={14} className="text-primary-foreground" />
-                  </div>
-                </div>
-                <div>
-                  <p className={`font-medium text-sm sm:text-base ${currentTrack?.id === track.id ? "text-primary" : "text-foreground"}`}>
-                    {track.title}
-                  </p>
-                  <p className="text-xs text-muted-foreground">MANDIK</p>
-                </div>
-                <span className="text-xs text-muted-foreground hidden sm:block">{track.album}</span>
-                <span className="text-xs text-muted-foreground text-right">{track.duration}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* VIDEO */}
-      <section id="video" className="py-24 px-4 sm:px-6 bg-muted/30">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <p className="text-accent text-sm font-medium tracking-widest uppercase mb-2">Клипы</p>
-            <h2 className="text-4xl sm:text-5xl font-heading font-bold text-gradient">Видео</h2>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-6">
-            {[
-              { title: "Ночной город — Official Video", placeholder: "Скоро" },
-              { title: "Дым — Lyric Video", placeholder: "Скоро" },
-            ].map((video, i) => (
-              <div key={i} className="group relative aspect-video bg-card rounded-2xl border border-border overflow-hidden cursor-pointer hover:border-primary/50 transition-all">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-3 group-hover:bg-primary/40 transition-all group-hover:scale-110">
-                      <Icon name="Play" size={28} className="text-primary" />
-                    </div>
-                    <p className="font-heading font-semibold text-foreground">{video.title}</p>
-                    <p className="text-sm text-muted-foreground mt-1">{video.placeholder}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ABOUT */}
-      <section id="about" className="py-24 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex flex-col lg:flex-row gap-12 items-center">
-            <div className="lg:w-1/2">
-              <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-accent/30 rounded-3xl blur-2xl" />
-                <img
-                  src={HERO_IMAGE}
-                  alt="MANDIK"
-                  className="relative w-full max-w-md mx-auto rounded-3xl object-cover aspect-square shadow-2xl"
-                />
-              </div>
-            </div>
-            <div className="lg:w-1/2">
-              <p className="text-secondary text-sm font-medium tracking-widest uppercase mb-2">О артисте</p>
-              <h2 className="text-4xl sm:text-5xl font-heading font-bold text-gradient mb-6">MANDIK</h2>
-              <p className="text-muted-foreground leading-relaxed mb-4">
-                MANDIK — молодой и амбициозный музыкант, который создаёт свой уникальный звук на стыке хип-хопа, поп-музыки и электроники.
-              </p>
-              <p className="text-muted-foreground leading-relaxed mb-6">
-                Его треки — это искренние истории о жизни, мечтах и пути наверх. Каждая песня — это часть большой истории, которую он рассказывает через музыку.
-              </p>
-              <div className="grid grid-cols-3 gap-6">
-                <div className="text-center">
-                  <p className="text-3xl font-heading font-bold text-gradient">8</p>
-                  <p className="text-xs text-muted-foreground mt-1">Треков</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-heading font-bold text-gradient">2</p>
-                  <p className="text-xs text-muted-foreground mt-1">Релиза</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-heading font-bold text-gradient">2025</p>
-                  <p className="text-xs text-muted-foreground mt-1">Старт</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* SOCIALS */}
-      <section id="socials" className="py-24 px-4 sm:px-6 bg-muted/30">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <p className="text-secondary text-sm font-medium tracking-widest uppercase mb-2">Подписывайся</p>
-            <h2 className="text-4xl sm:text-5xl font-heading font-bold text-gradient">Соцсети</h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {SOCIALS.map((social) => (
-              <a
-                key={social.name}
-                href={social.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group relative bg-card rounded-2xl border border-border p-6 flex flex-col items-center gap-3 hover:border-primary/50 transition-all hover:-translate-y-1"
-              >
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${social.color} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                  <Icon name={social.icon} size={24} className="text-white" />
-                </div>
-                <span className="font-medium text-sm text-foreground">{social.name}</span>
-                {social.name === "Instagram" && (
-                  <span className="text-xs text-muted-foreground">@mandik_inst</span>
-                )}
-              </a>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CONTACTS */}
-      <section id="contacts" className="py-24 px-4 sm:px-6">
-        <div className="max-w-3xl mx-auto text-center">
-          <p className="text-accent text-sm font-medium tracking-widest uppercase mb-2">Связаться</p>
-          <h2 className="text-4xl sm:text-5xl font-heading font-bold text-gradient mb-6">Контакты</h2>
-          <p className="text-muted-foreground mb-10">
-            По вопросам сотрудничества и букинга
-          </p>
-
-          <div className="grid sm:grid-cols-2 gap-4 max-w-lg mx-auto">
-            <a
-              href="https://instagram.com/mandik_inst"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 bg-card rounded-xl border border-border p-4 hover:border-primary/50 transition-all group"
-            >
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-pink-500 to-purple-500 flex items-center justify-center">
-                <Icon name="Instagram" size={20} className="text-white" />
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-medium text-foreground">Instagram</p>
-                <p className="text-xs text-muted-foreground">@mandik_inst</p>
-              </div>
-            </a>
-            <a
-              href="#"
-              className="flex items-center gap-3 bg-card rounded-xl border border-border p-4 hover:border-primary/50 transition-all group"
-            >
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center">
-                <Icon name="Send" size={20} className="text-white" />
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-medium text-foreground">Telegram</p>
-                <p className="text-xs text-muted-foreground">Написать</p>
-              </div>
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer className="border-t border-border py-8 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-xl font-heading font-bold text-gradient">MANDIK</span>
-          <p className="text-sm text-muted-foreground">© 2025 MANDIK. Все права защищены.</p>
-          <div className="flex gap-4">
-            <a href="https://instagram.com/mandik_inst" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground transition-colors">
-              <Icon name="Instagram" size={20} />
-            </a>
-            <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
-              <Icon name="Send" size={20} />
-            </a>
-            <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
-              <Icon name="Youtube" size={20} />
-            </a>
-          </div>
-        </div>
-      </footer>
-
-      {/* BOTTOM PLAYER */}
-      {currentTrack && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-xl border-t border-border shadow-2xl">
-          <div className="max-w-7xl mx-auto">
-            <input
-              type="range"
-              className="player-progress w-full"
-              min={0}
-              max={currentTrack.durationSec}
-              value={progress}
-              onChange={(e) => setProgress(Number(e.target.value))}
-            />
-            <div className="flex items-center gap-4 px-4 sm:px-6 pb-3 pt-1">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center shrink-0">
-                  <Icon name="Music" size={18} className="text-primary" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{currentTrack.title}</p>
-                  <p className="text-xs text-muted-foreground">MANDIK</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button onClick={prevTrack} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                  <Icon name="SkipBack" size={18} />
-                </button>
-                <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-primary/80 transition-colors glow-purple"
+                <div
+                  className="w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0"
+                  style={{ backgroundColor: u.avatar_color }}
                 >
-                  <Icon name={isPlaying ? "Pause" : "Play"} size={18} className="text-primary-foreground" />
-                </button>
-                <button onClick={nextTrack} className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-                  <Icon name="SkipForward" size={18} />
-                </button>
-              </div>
-
-              <div className="flex-1 flex items-center justify-end gap-3">
-                <span className="text-xs text-muted-foreground hidden sm:block">
-                  {formatTime(progress)} / {currentTrack.duration}
-                </span>
-                <div className="hidden sm:flex items-center gap-2">
-                  <Icon name="Volume2" size={14} className="text-muted-foreground" />
-                  <input
-                    type="range"
-                    className="player-volume w-20"
-                    min={0}
-                    max={100}
-                    value={volume}
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                  />
+                  {getInitials(u.display_name)}
                 </div>
-              </div>
-            </div>
+                <div className="flex-1 text-left">
+                  <p className="font-medium text-sm">{u.display_name}</p>
+                  <p className="text-xs text-slate-500">@{u.username}</p>
+                </div>
+                {u.is_online && <div className="w-2.5 h-2.5 bg-green-500 rounded-full" />}
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // CHAT SCREEN
+  if (screen === "chat" && activeConv) {
+    const other = activeConv.other_user;
+    return (
+      <div className="h-screen bg-slate-950 text-white flex flex-col">
+        <div className="bg-slate-900/95 backdrop-blur-xl border-b border-slate-800 shrink-0">
+          <div className="max-w-lg mx-auto flex items-center gap-3 px-4 py-3">
+            <button onClick={() => { setScreen("chats"); loadConversations(); }} className="p-2 -ml-2 hover:bg-slate-800 rounded-xl transition-colors">
+              <Icon name="ArrowLeft" size={20} />
+            </button>
+            {other && (
+              <>
+                <div
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0 relative"
+                  style={{ backgroundColor: other.avatar_color }}
+                >
+                  {getInitials(other.display_name)}
+                  {other.is_online && (
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-slate-900" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm truncate">{other.display_name}</p>
+                  <p className="text-xs text-slate-500">{other.is_online ? "онлайн" : "был(а) недавно"}</p>
+                </div>
+              </>
+            )}
           </div>
         </div>
-      )}
+
+        <div className="flex-1 overflow-y-auto px-4 py-4 max-w-lg mx-auto w-full">
+          {messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-slate-600">
+              <Icon name="MessageCircle" size={48} className="mb-3 opacity-30" />
+              <p className="text-sm">Начните общение!</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {messages.map((msg) => {
+                const isMine = msg.sender_id === user?.id;
+                return (
+                  <div key={msg.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm leading-relaxed ${
+                        isMine
+                          ? "bg-violet-600 text-white rounded-br-md"
+                          : "bg-slate-800 text-slate-100 rounded-bl-md"
+                      }`}
+                    >
+                      <p className="break-words">{msg.text}</p>
+                      <p className={`text-[10px] mt-1 ${isMine ? "text-violet-300" : "text-slate-500"} text-right`}>
+                        {formatTime(msg.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEnd} />
+            </div>
+          )}
+        </div>
+
+        <div className="bg-slate-900/95 backdrop-blur-xl border-t border-slate-800 shrink-0">
+          <div className="max-w-lg mx-auto flex items-center gap-2 px-4 py-3">
+            <Input
+              placeholder="Сообщение..."
+              value={newMsg}
+              onChange={(e) => setNewMsg(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 flex-1 h-10"
+            />
+            <Button
+              onClick={handleSend}
+              disabled={!newMsg.trim()}
+              size="icon"
+              className="bg-violet-600 hover:bg-violet-500 h-10 w-10 shrink-0"
+            >
+              <Icon name="Send" size={18} />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // CHATS LIST SCREEN
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800">
+        <div className="max-w-lg mx-auto flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-cyan-500 rounded-lg flex items-center justify-center">
+              <Icon name="MessageCircle" size={16} className="text-white" />
+            </div>
+            <h1 className="font-bold text-lg">БумагаGram</h1>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={openUsers} className="p-2 hover:bg-slate-800 rounded-xl transition-colors" title="Новый чат">
+              <Icon name="PenSquare" size={20} />
+            </button>
+            <button onClick={handleLogout} className="p-2 hover:bg-slate-800 rounded-xl transition-colors text-slate-400" title="Выход">
+              <Icon name="LogOut" size={18} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto">
+        {user && (
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800/50">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm"
+              style={{ backgroundColor: user.avatar_color }}
+            >
+              {getInitials(user.display_name)}
+            </div>
+            <div>
+              <p className="font-medium text-sm">{user.display_name}</p>
+              <p className="text-xs text-slate-500">@{user.username}</p>
+            </div>
+          </div>
+        )}
+
+        {conversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-slate-600">
+            <Icon name="MessagesSquare" size={48} className="mb-3 opacity-30" />
+            <p className="text-sm mb-4">Пока нет диалогов</p>
+            <Button onClick={openUsers} variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
+              <Icon name="Plus" size={16} />
+              <span className="ml-2">Начать чат</span>
+            </Button>
+          </div>
+        ) : (
+          conversations.map((conv) => {
+            const other = conv.other_user;
+            if (!other) return null;
+            return (
+              <button
+                key={conv.id}
+                onClick={() => openChat(conv)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-900/50 transition-colors border-b border-slate-800/50"
+              >
+                <div className="relative shrink-0">
+                  <div
+                    className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-sm"
+                    style={{ backgroundColor: other.avatar_color }}
+                  >
+                    {getInitials(other.display_name)}
+                  </div>
+                  {other.is_online && (
+                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-950" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-sm truncate">{other.display_name}</p>
+                    {conv.last_message && (
+                      <span className="text-[11px] text-slate-500 shrink-0 ml-2">
+                        {formatTime(conv.last_message.created_at)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-slate-500 truncate">
+                      {conv.last_message
+                        ? conv.last_message.sender_id === user?.id
+                          ? `Вы: ${conv.last_message.text}`
+                          : conv.last_message.text
+                        : "Нет сообщений"}
+                    </p>
+                    {conv.unread_count > 0 && (
+                      <span className="ml-2 shrink-0 bg-violet-600 text-white text-[11px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                        {conv.unread_count}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 };
